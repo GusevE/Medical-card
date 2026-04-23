@@ -61,6 +61,12 @@ const patientSchema = z.object({
   photoDataUrl: z.string().nullable(),
 })
 
+const patientDocSchema = z.object({
+  kind: z.enum(['common']),
+  name: z.string().min(1).max(120).optional().default('Документ'),
+  dataUrl: z.string().min(10).max(5_000_000),
+})
+
 function ensurePatientRow() {
   const row = db
     .prepare(`SELECT id, full_name, birth_date, phone, address, notes, photo_data_url FROM patient WHERE id = 1`)
@@ -161,6 +167,32 @@ app.put('/patient', requireAuth, requireAdmin, (req, res) => {
   return res.json({ ok: true })
 })
 
+app.get('/patient/docs', requireAuth, (_req, res) => {
+  const rows = db
+    .prepare(`SELECT id, kind, name, data_url, created_at FROM patient_docs ORDER BY id DESC`)
+    .all() as any[]
+  return res.json(
+    rows.map((d) => ({ id: String(d.id), kind: d.kind, name: d.name, dataUrl: d.data_url, createdAt: d.created_at })),
+  )
+})
+
+app.post('/patient/docs', requireAuth, requireAdmin, (req, res) => {
+  const parsed = patientDocSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'bad_request' })
+  const { kind, name, dataUrl } = parsed.data
+  const info = db
+    .prepare(`INSERT INTO patient_docs (kind, name, data_url, created_at) VALUES (?, ?, ?, ?)`)
+    .run(kind, name, dataUrl, new Date().toISOString())
+  return res.json({ id: String(info.lastInsertRowid) })
+})
+
+app.delete('/patient/docs/:docId', requireAuth, requireAdmin, (req, res) => {
+  const docId = Number(req.params.docId)
+  const info = db.prepare(`DELETE FROM patient_docs WHERE id = ?`).run(docId)
+  if (info.changes === 0) return res.status(404).json({ error: 'not_found' })
+  return res.json({ ok: true })
+})
+
 const examCreateSchema = z.object({
   title: z.string().min(1).max(300),
   deadline: z.string().max(20),
@@ -175,6 +207,12 @@ const examBulkSchema = z.object({
 const examStatusSchema = z.object({
   status: z.enum(['todo', 'referral', 'submitted', 'done', 'result']),
   resultPhotoDataUrl: z.string().nullable().optional(),
+})
+
+const examDocSchema = z.object({
+  kind: z.enum(['result', 'doc']),
+  name: z.string().min(1).max(120).optional().default('Документ'),
+  dataUrl: z.string().min(10).max(5_000_000),
 })
 
 app.get('/exams', requireAuth, (req, res) => {
@@ -276,6 +314,28 @@ app.get('/exams', requireAuth, (req, res) => {
     )
     .all(date) as any[]
 
+  const docsByItem = new Map<string, any[]>()
+  const docs = db
+    .prepare(
+      `SELECT id, exam_item_id, kind, name, data_url, created_at
+       FROM exam_docs
+       WHERE exam_item_id IN (SELECT id FROM exam_items WHERE exam_date = ?)
+       ORDER BY id DESC`,
+    )
+    .all(date) as any[]
+  for (const d of docs) {
+    const k = String(d.exam_item_id)
+    const arr = docsByItem.get(k) ?? []
+    arr.push({
+      id: String(d.id),
+      kind: d.kind,
+      name: d.name,
+      dataUrl: d.data_url,
+      createdAt: d.created_at,
+    })
+    docsByItem.set(k, arr)
+  }
+
   return res.json(
     items.map((r) => ({
       id: String(r.id),
@@ -286,6 +346,7 @@ app.get('/exams', requireAuth, (req, res) => {
       category: r.category || '',
       validityDays: Number(r.validity_days || 0),
       resultPhotoDataUrl: r.result_photo_data_url ? String(r.result_photo_data_url) : null,
+      documents: docsByItem.get(String(r.id)) ?? [],
       doneAt: r.done_at,
     })),
   )
@@ -362,9 +423,53 @@ app.patch('/exams/:id/status', requireAuth, requireAdmin, (req, res) => {
       ? (typeof resultPhotoDataUrl === 'string' ? resultPhotoDataUrl : null)
       : null
 
+  // Keep docs table in sync for "result" photo.
+  if (status === 'result' && resultPhotoDataUrl !== undefined) {
+    if (typeof resultPhotoDataUrl === 'string') {
+      // Replace existing result doc
+      db.prepare(`DELETE FROM exam_docs WHERE exam_item_id = ? AND kind = 'result'`).run(id)
+      db.prepare(
+        `INSERT INTO exam_docs (exam_item_id, kind, name, data_url, created_at) VALUES (?, 'result', ?, ?, ?)`,
+      ).run(id, 'Результат', resultPhotoDataUrl, new Date().toISOString())
+    } else {
+      db.prepare(`DELETE FROM exam_docs WHERE exam_item_id = ? AND kind = 'result'`).run(id)
+    }
+  }
+
   const info = db
     .prepare(`UPDATE exam_items SET status = ?, done = ?, done_at = ?, result_photo_data_url = ? WHERE id = ?`)
     .run(status, done, doneAt, nextPhoto ?? '', id)
+  if (info.changes === 0) return res.status(404).json({ error: 'not_found' })
+  return res.json({ ok: true })
+})
+
+app.get('/exams/:id/docs', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  const rows = db
+    .prepare(`SELECT id, kind, name, data_url, created_at FROM exam_docs WHERE exam_item_id = ? ORDER BY id DESC`)
+    .all(id) as any[]
+  return res.json(
+    rows.map((d) => ({ id: String(d.id), kind: d.kind, name: d.name, dataUrl: d.data_url, createdAt: d.created_at })),
+  )
+})
+
+app.post('/exams/:id/docs', requireAuth, requireAdmin, (req, res) => {
+  const id = Number(req.params.id)
+  const parsed = examDocSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'bad_request' })
+  const row = db.prepare(`SELECT id FROM exam_items WHERE id = ?`).get(id) as any
+  if (!row) return res.status(404).json({ error: 'not_found' })
+  const { kind, name, dataUrl } = parsed.data
+  const info = db
+    .prepare(`INSERT INTO exam_docs (exam_item_id, kind, name, data_url, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(id, kind, name, dataUrl, new Date().toISOString())
+  return res.json({ id: String(info.lastInsertRowid) })
+})
+
+app.delete('/exams/:id/docs/:docId', requireAuth, requireAdmin, (req, res) => {
+  const itemId = Number(req.params.id)
+  const docId = Number(req.params.docId)
+  const info = db.prepare(`DELETE FROM exam_docs WHERE id = ? AND exam_item_id = ?`).run(docId, itemId)
   if (info.changes === 0) return res.status(404).json({ error: 'not_found' })
   return res.json({ ok: true })
 })

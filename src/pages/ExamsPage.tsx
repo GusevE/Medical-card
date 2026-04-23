@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { type ExamItem, useMedicalStore } from '../store/medicalStore'
-import { fileToDataUrl } from '../lib/file'
+import { compressImageFileToDataUrl } from '../lib/file'
 
 type NewItemForm = {
   title: string
@@ -27,12 +27,17 @@ export function ExamsPage() {
   const addExamItem = useMedicalStore((s) => s.addExamItem)
   const toggleExamDone = useMedicalStore((s) => s.toggleExamDone)
   const setExamStatus = useMedicalStore((s) => s.setExamStatus)
+  const addExamDoc = useMedicalStore((s) => s.addExamDoc)
+  const removeExamDoc = useMedicalStore((s) => s.removeExamDoc)
   const removeExamItem = useMedicalStore((s) => s.removeExamItem)
   const updatingExamIds = useMedicalStore((s) => s.updatingExamIds)
 
   const [form, setForm] = useState<NewItemForm>({ title: '', deadline: '' })
   const resultFileRef = useRef<HTMLInputElement | null>(null)
   const [resultPickForId, setResultPickForId] = useState<string | null>(null)
+  const docFileRef = useRef<HTMLInputElement | null>(null)
+  const [docPickForId, setDocPickForId] = useState<string | null>(null)
+  const [docView, setDocView] = useState<{ itemId: string; title: string; docs: NonNullable<ExamItem['documents']>; activeId: string } | null>(null)
 
   const [cat, setCat] = useState<string>('Все')
 
@@ -55,7 +60,16 @@ export function ExamsPage() {
   }, [items])
 
   const filtered = useMemo(() => {
-    if (cat === 'Все') return items
+    if (cat === 'Все') {
+      const arr = [...items]
+      arr.sort((a, b) => {
+        const ad = a.status === 'submitted' || a.status === 'done' || a.status === 'result'
+        const bd = b.status === 'submitted' || b.status === 'done' || b.status === 'result'
+        if (ad === bd) return 0
+        return ad ? -1 : 1
+      })
+      return arr
+    }
     return items.filter((i) => (i.category || '').trim() === cat)
   }, [items, cat])
 
@@ -64,6 +78,11 @@ export function ExamsPage() {
     const total = items.length
     return { done, total }
   }, [items])
+
+  const percent = useMemo(() => {
+    if (!stats.total) return 0
+    return Math.min(100, Math.round((stats.done / stats.total) * 100))
+  }, [stats.done, stats.total])
 
   async function submit() {
     const title = form.title.trim()
@@ -108,8 +127,19 @@ export function ExamsPage() {
     if (!token) return
     if (!canEdit) return
     if (!itemId) return
-    const dataUrl = await fileToDataUrl(file)
+    const dataUrl = await compressImageFileToDataUrl(file)
     await setExamStatus(token, date, itemId, 'result', dataUrl)
+  }
+
+  async function onPickDoc(file: File | null) {
+    const itemId = docPickForId
+    setDocPickForId(null)
+    if (!file) return
+    if (!token) return
+    if (!canEdit) return
+    if (!itemId) return
+    const dataUrl = await compressImageFileToDataUrl(file)
+    await addExamDoc(token, date, itemId, { kind: 'doc', name: file.name || 'Документ', dataUrl })
   }
 
   return (
@@ -129,6 +159,22 @@ export function ExamsPage() {
           </label>
         </div>
 
+        <div className="progressRow">
+          <div
+            className="progress full"
+            role="progressbar"
+            aria-label="Прогресс обследований"
+            aria-valuemin={0}
+            aria-valuemax={stats.total || 0}
+            aria-valuenow={stats.done}
+          >
+            <div className="progressBar" style={{ width: `${percent}%` }} />
+          </div>
+          <div className="progressPct" aria-label="Процент готовности">
+            {percent}%
+          </div>
+        </div>
+
         <div className="stack gap-12">
           <input
             ref={resultFileRef}
@@ -136,6 +182,13 @@ export function ExamsPage() {
             accept="image/*"
             className="hidden"
             onChange={(e) => void onPickResultPhoto(e.currentTarget.files?.[0] ?? null)}
+          />
+          <input
+            ref={docFileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => void onPickDoc(e.currentTarget.files?.[0] ?? null)}
           />
           <div className="subtabs" role="tablist" aria-label="Категории">
             {categories.map((c) => {
@@ -253,16 +306,22 @@ export function ExamsPage() {
                               ? ` • ${it.doneAt.slice(0, 10)}`
                               : ''}
                           </span>
-                          {it.status === 'result' && it.resultPhotoDataUrl ? (
-                            <a
-                              className="badge"
-                              href={it.resultPhotoDataUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              title="Открыть фото результата"
+                          {Array.isArray(it.documents) && it.documents.length > 0 ? (
+                            <button
+                              type="button"
+                              className="badge badgeBtn"
+                              onClick={() =>
+                                setDocView({
+                                  itemId: it.id,
+                                  title: it.title,
+                                  docs: it.documents!,
+                                  activeId: it.documents![0]!.id,
+                                })
+                              }
+                              title="Открыть документы"
                             >
-                              Фото
-                            </a>
+                              Документы {it.documents.length}
+                            </button>
                           ) : null}
                         </div>
                       </div>
@@ -279,7 +338,13 @@ export function ExamsPage() {
                           type="button"
                           className="btn sm"
                           onClick={() => token && canEdit && void setExamStatus(token, date, it.id, 'submitted')}
-                          disabled={!canEdit || updatingExamIds[it.id] || it.status === 'submitted'}
+                          disabled={
+                            !canEdit ||
+                            updatingExamIds[it.id] ||
+                            it.status === 'submitted' ||
+                            it.status === 'done' ||
+                            it.status === 'result'
+                          }
                         >
                           Сдано
                         </button>
@@ -297,6 +362,18 @@ export function ExamsPage() {
                         </button>
                         <button
                           type="button"
+                          className="btn sm"
+                          onClick={() => {
+                            if (!token || !canEdit) return
+                            setDocPickForId(it.id)
+                            docFileRef.current?.click()
+                          }}
+                          disabled={!canEdit || updatingExamIds[it.id]}
+                        >
+                          Документ
+                        </button>
+                        <button
+                          type="button"
                           className="btn sm ghost"
                           onClick={() => token && canEdit && void setExamStatus(token, date, it.id, 'todo')}
                           disabled={!canEdit || updatingExamIds[it.id] || it.status === 'todo'}
@@ -309,7 +386,7 @@ export function ExamsPage() {
                     {canEdit ? (
                       <button
                         type="button"
-                        className="iconBtn"
+                        className="iconBtn sm"
                         title="Удалить"
                         onClick={() => token && void removeExamItem(token, date, it.id)}
                       >
@@ -323,6 +400,76 @@ export function ExamsPage() {
           )}
         </div>
       </div>
+      {docView ? (
+        <div
+          className="modalOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Просмотр документа"
+          onClick={() => setDocView(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHeader row between gap-12">
+              <div className="modalTitle">{docView.title}</div>
+              <button type="button" className="iconBtn sm" onClick={() => setDocView(null)} aria-label="Закрыть">
+                ✕
+              </button>
+            </div>
+            <div className="modalBody">
+              {(() => {
+                const active = docView.docs.find((d) => d.id === docView.activeId) || docView.docs[0]
+                return active ? <img className="docImage" src={active.dataUrl} alt={active.name} /> : null
+              })()}
+              <div className="row gap-8 wrap" style={{ marginTop: 10 }}>
+                {docView.docs.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className={`badge badgeBtn ${d.id === docView.activeId ? 'ok' : ''}`}
+                    onClick={() => setDocView((v) => (v ? { ...v, activeId: d.id } : v))}
+                    title={d.name}
+                  >
+                    {d.kind === 'result' ? 'Результат' : 'Док'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="modalFooter row between gap-12 wrap">
+              {canEdit ? (
+                <button
+                  type="button"
+                  className="btn sm"
+                  onClick={() => {
+                    if (!token) return
+                    const active = docView.docs.find((d) => d.id === docView.activeId)
+                    if (!active) return
+                    if (active.kind === 'result') {
+                      void setExamStatus(token, date, docView.itemId, 'result', null)
+                    } else {
+                      void removeExamDoc(token, date, docView.itemId, active.id)
+                    }
+                    setDocView(null)
+                  }}
+                  disabled={!token || updatingExamIds[docView.itemId]}
+                >
+                  Удалить
+                </button>
+              ) : null}
+              <a
+                className="btn sm"
+                href={(docView.docs.find((d) => d.id === docView.activeId) || docView.docs[0])?.dataUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Открыть в новой вкладке
+              </a>
+              <button type="button" className="btn sm ghost" onClick={() => setDocView(null)}>
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

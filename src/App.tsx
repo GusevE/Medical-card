@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { ExamsPage } from './pages/ExamsPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
+import { PatientDocsPage } from './pages/PatientDocsPage'
 import { useAuthStore } from './store/authStore'
 import { useMedicalStore } from './store/medicalStore'
 import './App.css'
 
-type Tab = 'home' | 'exams'
+type Tab = 'home' | 'exams' | 'docs'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home')
@@ -78,14 +79,25 @@ export default function App() {
             >
               Обследования
             </button>
+            <button
+              type="button"
+              className={`tab ${tab === 'docs' ? 'active' : ''}`}
+              onClick={() => setTab('docs')}
+            >
+              Документы
+            </button>
           </nav>
-          <button type="button" className="btn ghost" onClick={logout} title={username ?? undefined}>
-            Выйти
-          </button>
+          <div className="tabs tabsSingle" aria-label="Выход">
+            <button type="button" className="tab logoutTab" onClick={logout} title={username ?? undefined}>
+              Выйти
+            </button>
+          </div>
         </div>
       </header>
 
-      <main className="container">{tab === 'home' ? <HomePage /> : <ExamsPage />}</main>
+      <main className="container">
+        {tab === 'home' ? <HomePage /> : tab === 'exams' ? <ExamsPage /> : <PatientDocsPage />}
+      </main>
 
       <footer className="footer">
         Данные сохраняются в базе данных (SQLite) на сервере.

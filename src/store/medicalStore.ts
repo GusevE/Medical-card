@@ -13,6 +13,14 @@ export type Patient = {
   photoDataUrl: string | null
 }
 
+export type PatientDoc = {
+  id: string
+  kind: 'common'
+  name: string
+  dataUrl: string
+  createdAt: string
+}
+
 export type ExamItem = {
   id: string
   date: string
@@ -22,18 +30,25 @@ export type ExamItem = {
   category: string
   validityDays: number
   resultPhotoDataUrl?: string | null
+  documents?: Array<{ id: string; kind: 'result' | 'doc'; name: string; dataUrl: string; createdAt: string }>
   doneAt: string // ISO or ''
 }
 
 type MedicalState = {
   patient: Patient | null
+  patientDocs: PatientDoc[]
   examsByDate: Record<string, ExamItem[]>
   loadingPatient: boolean
+  loadingPatientDocs: boolean
   loadingExams: Record<string, boolean>
   errorPatient: string | null
+  errorPatientDocs: string | null
   errorExams: Record<string, string | null>
   updatingExamIds: Record<string, boolean>
   loadPatient: (token: string) => Promise<void>
+  loadPatientDocs: (token: string) => Promise<void>
+  addPatientDoc: (token: string, doc: { name: string; dataUrl: string }) => Promise<void>
+  removePatientDoc: (token: string, docId: string) => Promise<void>
   savePatient: (token: string, patch: Partial<Patient>) => Promise<void>
   setPatientPhoto: (token: string, photoDataUrl: string | null) => Promise<void>
   loadExams: (token: string, date: string) => Promise<void>
@@ -55,16 +70,21 @@ type MedicalState = {
     status: ExamItem['status'],
     resultPhotoDataUrl?: string | null,
   ) => Promise<void>
+  addExamDoc: (token: string, date: string, itemId: string, doc: { kind: 'result' | 'doc'; name: string; dataUrl: string }) => Promise<void>
+  removeExamDoc: (token: string, date: string, itemId: string, docId: string) => Promise<void>
   removeExamItem: (token: string, date: string, itemId: string) => Promise<void>
 }
 
 export const useMedicalStore = create<MedicalState>()(
   (set, get) => ({
     patient: null,
+    patientDocs: [],
     examsByDate: {},
     loadingPatient: false,
+    loadingPatientDocs: false,
     loadingExams: {},
     errorPatient: null,
+    errorPatientDocs: null,
     errorExams: {},
     updatingExamIds: {},
 
@@ -79,6 +99,36 @@ export const useMedicalStore = create<MedicalState>()(
       } finally {
         set({ loadingPatient: false })
       }
+    },
+
+    loadPatientDocs: async (token) => {
+      set({ loadingPatientDocs: true, errorPatientDocs: null })
+      try {
+        const docs = await apiFetch<PatientDoc[]>('/patient/docs', { token })
+        set({ patientDocs: docs })
+      } catch (e) {
+        set({ errorPatientDocs: e instanceof Error ? e.message : 'Ошибка загрузки документов' })
+        throw e
+      } finally {
+        set({ loadingPatientDocs: false })
+      }
+    },
+
+    addPatientDoc: async (token, doc) => {
+      await apiFetch<{ id: string }>('/patient/docs', {
+        token,
+        method: 'POST',
+        body: JSON.stringify({ kind: 'common', name: doc.name, dataUrl: doc.dataUrl }),
+      })
+      await get().loadPatientDocs(token)
+    },
+
+    removePatientDoc: async (token, docId) => {
+      await apiFetch<{ ok: true }>(`/patient/docs/${encodeURIComponent(docId)}`, {
+        token,
+        method: 'DELETE',
+      })
+      await get().loadPatientDocs(token)
     },
 
     savePatient: async (token, patch) => {
@@ -171,16 +221,52 @@ export const useMedicalStore = create<MedicalState>()(
                   ...it,
                   status,
                   doneAt: doneLike ? new Date().toISOString() : '',
-                  resultPhotoDataUrl: status === 'result' ? (resultPhotoDataUrl ?? it.resultPhotoDataUrl ?? null) : null,
+                  resultPhotoDataUrl:
+                    status === 'result'
+                      ? resultPhotoDataUrl !== undefined
+                        ? resultPhotoDataUrl
+                        : it.resultPhotoDataUrl ?? null
+                      : null,
                 },
           )
           return { examsByDate: { ...s.examsByDate, [date]: next } }
         })
 
+        const body: any = { status }
+        if (status === 'result' && resultPhotoDataUrl !== undefined) {
+          body.resultPhotoDataUrl = resultPhotoDataUrl
+        }
         await apiFetch<{ ok: true }>(`/exams/${encodeURIComponent(itemId)}/status`, {
           token,
           method: 'PATCH',
-          body: JSON.stringify({ status, resultPhotoDataUrl: status === 'result' ? (resultPhotoDataUrl ?? null) : null }),
+          body: JSON.stringify(body),
+        })
+        await get().loadExams(token, date)
+      } finally {
+        set((s) => ({ updatingExamIds: { ...s.updatingExamIds, [itemId]: false } }))
+      }
+    },
+
+    addExamDoc: async (token, date, itemId, doc) => {
+      set((s) => ({ updatingExamIds: { ...s.updatingExamIds, [itemId]: true } }))
+      try {
+        await apiFetch<{ id: string }>(`/exams/${encodeURIComponent(itemId)}/docs`, {
+          token,
+          method: 'POST',
+          body: JSON.stringify(doc),
+        })
+        await get().loadExams(token, date)
+      } finally {
+        set((s) => ({ updatingExamIds: { ...s.updatingExamIds, [itemId]: false } }))
+      }
+    },
+
+    removeExamDoc: async (token, date, itemId, docId) => {
+      set((s) => ({ updatingExamIds: { ...s.updatingExamIds, [itemId]: true } }))
+      try {
+        await apiFetch<{ ok: true }>(`/exams/${encodeURIComponent(itemId)}/docs/${encodeURIComponent(docId)}`, {
+          token,
+          method: 'DELETE',
         })
         await get().loadExams(token, date)
       } finally {

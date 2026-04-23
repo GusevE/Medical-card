@@ -47,6 +47,9 @@
   border-radius: 999px;
   padding: 6px;
 }
+.tabs.tabsSingle {
+  gap: 0;
+}
 
 .tab {
   border: 0;
@@ -56,6 +59,17 @@
   cursor: pointer;
   color: var(--muted);
   min-height: 44px;
+}
+
+/* Topbar logout styled like tabs */
+.logoutTab {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+.logoutTab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
 }
 
 .tab.active {
@@ -144,6 +158,39 @@
   margin-top: 4px;
 }
 
+/* Progress */
+.progress {
+  margin-top: 10px;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.18);
+}
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.progress.full {
+  width: 100%;
+  margin-top: 0;
+  margin-bottom: 0;
+  height: 12px;
+}
+.progressPct {
+  min-width: 42px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+}
+.progressBar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(110, 231, 255, 0.95), rgba(82, 255, 168, 0.95));
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -199,6 +246,12 @@
   height: 40px;
   cursor: pointer;
   color: var(--muted);
+}
+.iconBtn.sm {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  font-size: 14px;
 }
 .iconBtn:hover {
   color: var(--text);
@@ -337,7 +390,69 @@
 }
 
 .listItem.done {
-  opacity: 0.85;
+  opacity: 0.92;
+  border-color: rgba(82, 255, 168, 0.28);
+  background: linear-gradient(90deg, rgba(82, 255, 168, 0.08), rgba(255, 255, 255, 0.03));
+  box-shadow: 0 0 0 1px rgba(82, 255, 168, 0.12) inset;
+  position: relative;
+}
+.listItem.done::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 4px;
+  border-radius: 999px;
+  background: rgba(82, 255, 168, 0.9);
+}
+
+/* Patient docs grid */
+.docGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  .docGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 560px) {
+  .docGrid {
+    grid-template-columns: 1fr;
+  }
+}
+.docCard {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.docThumb {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+}
+.docThumb img {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  display: block;
+}
+.docName {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .itemTitle {
@@ -358,6 +473,58 @@
   background: rgba(0, 0, 0, 0.16);
   padding: 5px 9px;
   border-radius: 999px;
+}
+.badgeBtn {
+  cursor: pointer;
+}
+.badgeBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Modal viewer */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+.modal {
+  width: min(980px, 100%);
+  max-height: min(90svh, 900px);
+  overflow: hidden;
+  background: rgba(10, 14, 28, 0.98);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+}
+.modalHeader {
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.modalTitle {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+.modalBody {
+  padding: 12px;
+  overflow: auto;
+}
+.docImage {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+}
+.modalFooter {
+  padding: 12px;
+  border-top: 1px solid var(--border);
 }
 .badge.ok {
   color: rgba(0, 0, 0, 0.85);

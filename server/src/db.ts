@@ -33,6 +33,15 @@ export function migrate() {
       photo_data_url TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS patient_docs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      data_url TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_patient_docs_created ON patient_docs(created_at);
+
     CREATE TABLE IF NOT EXISTS exam_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       exam_date TEXT NOT NULL,
@@ -45,6 +54,17 @@ export function migrate() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_exam_items_date ON exam_items(exam_date);
+
+    CREATE TABLE IF NOT EXISTS exam_docs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      exam_item_id INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      data_url TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(exam_item_id) REFERENCES exam_items(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_exam_docs_item ON exam_docs(exam_item_id);
   `)
 
   // Backward-compatible migration from older schema
@@ -64,6 +84,17 @@ export function migrate() {
   if (!hasColumn('exam_items', 'result_photo_data_url')) {
     db.exec(`ALTER TABLE exam_items ADD COLUMN result_photo_data_url TEXT NOT NULL DEFAULT '';`)
   }
+
+  // Backfill legacy single result photo into docs table (once).
+  db.exec(`
+    INSERT INTO exam_docs (exam_item_id, kind, name, data_url, created_at)
+    SELECT id, 'result', 'Результат', result_photo_data_url, COALESCE(NULLIF(done_at, ''), datetime('now'))
+    FROM exam_items
+    WHERE TRIM(COALESCE(result_photo_data_url, '')) <> ''
+      AND id NOT IN (
+        SELECT exam_item_id FROM exam_docs WHERE kind = 'result'
+      );
+  `)
 
   // Cleanup existing duplicates (keep the smallest id for each key).
   db.exec(`

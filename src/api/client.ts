@@ -11,6 +11,7 @@ type LocalExamItem = {
   category: string
   validityDays: number
   resultPhotoDataUrl?: string | null
+  documents?: Array<{ id: string; kind: 'result' | 'doc'; name: string; dataUrl: string; createdAt: string }>
   doneAt: string
 }
 type LocalPatient = {
@@ -22,6 +23,7 @@ type LocalPatient = {
   notes: string
   photoDataUrl: string | null
 }
+type LocalPatientDoc = { id: string; kind: 'common'; name: string; dataUrl: string; createdAt: string }
 
 function isLocalMode() {
   return String(API_URL).trim().toLowerCase() === 'local'
@@ -96,6 +98,38 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
     return p as T
   }
 
+  if (pathname === '/patient/docs' && method === 'GET') {
+    requireLocalAuth(token)
+    const docs = lsGet<LocalPatientDoc[]>('mc:patientDocs', [])
+    return docs as any as T
+  }
+
+  if (pathname === '/patient/docs' && method === 'POST') {
+    const s = requireLocalAuth(token)
+    if (s.role !== 'admin') throw new ApiError(403, 'forbidden')
+    const body = opts.body ? (JSON.parse(String(opts.body)) as any) : {}
+    const name = String(body.name || 'Документ')
+    const dataUrl = String(body.dataUrl || '')
+    if (!dataUrl.startsWith('data:')) throw new ApiError(400, 'bad_request')
+    const docs = lsGet<LocalPatientDoc[]>('mc:patientDocs', [])
+    const id = `pd_${Date.now()}_${Math.random().toString(36).slice(2)}`
+    docs.unshift({ id, kind: 'common', name, dataUrl, createdAt: new Date().toISOString() })
+    lsSet('mc:patientDocs', docs)
+    return { id } as any as T
+  }
+
+  const mPatientDocDel = pathname.match(/^\/patient\/docs\/([^/]+)$/)
+  if (mPatientDocDel && method === 'DELETE') {
+    const s = requireLocalAuth(token)
+    if (s.role !== 'admin') throw new ApiError(403, 'forbidden')
+    const docId = decodeURIComponent(mPatientDocDel[1])
+    const docs = lsGet<LocalPatientDoc[]>('mc:patientDocs', [])
+    const next = docs.filter((d) => d.id !== docId)
+    if (next.length === docs.length) throw new ApiError(404, 'not_found')
+    lsSet('mc:patientDocs', next)
+    return { ok: true } as any as T
+  }
+
   if (pathname === '/patient' && method === 'PUT') {
     const s = requireLocalAuth(token)
     if (s.role !== 'admin') throw new ApiError(403, 'forbidden')
@@ -111,7 +145,7 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
     const date = String(searchParams.get('date') || '')
     if (!date) throw new ApiError(400, 'date_required')
     const byDate = lsGet<Record<string, LocalExamItem[]>>('mc:examsByDate', {})
-    return (byDate[date] ?? []) as T
+    return (byDate[date] ?? []).map((it) => ({ ...it, documents: it.documents ?? [] })) as T
   }
 
   if (pathname === '/exams' && method === 'POST') {
@@ -134,6 +168,7 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
       category: String(body.category || ''),
       validityDays: Number(body.validityDays || 0),
       resultPhotoDataUrl: null,
+      documents: [],
       doneAt: '',
     }
     byDate[date] = [item, ...(byDate[date] ?? [])]
@@ -175,7 +210,9 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
     const id = decodeURIComponent(mStatus[1])
     const body = opts.body ? (JSON.parse(String(opts.body)) as any) : {}
     const status = String(body.status || '') as LocalExamStatus
-    const resultPhotoDataUrl = typeof body.resultPhotoDataUrl === 'string' ? body.resultPhotoDataUrl : null
+    const hasResultPhoto = Object.prototype.hasOwnProperty.call(body, 'resultPhotoDataUrl')
+    const resultPhotoDataUrl =
+      hasResultPhoto && typeof body.resultPhotoDataUrl === 'string' ? body.resultPhotoDataUrl : null
     const allowed: LocalExamStatus[] = ['todo', 'referral', 'submitted', 'done', 'result']
     if (!allowed.includes(status)) throw new ApiError(400, 'bad_request')
 
@@ -186,11 +223,32 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
       if (idx >= 0) {
         const cur = list[idx]
         const doneLike = status === 'done' || status === 'result'
+        const nextDocs = [...(cur.documents ?? [])].filter((d) => d.kind !== 'result')
+        if (status === 'result' && hasResultPhoto) {
+          if (resultPhotoDataUrl) {
+            nextDocs.unshift({
+              id: `d_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+              kind: 'result',
+              name: 'Результат',
+              dataUrl: resultPhotoDataUrl,
+              createdAt: new Date().toISOString(),
+            })
+          }
+        } else if (status === 'result' && !hasResultPhoto) {
+          // keep existing
+          for (const d of cur.documents ?? []) if (d.kind === 'result') nextDocs.unshift(d)
+        }
         list[idx] = {
           ...cur,
           status,
           doneAt: doneLike ? new Date().toISOString() : '',
-          resultPhotoDataUrl: status === 'result' ? resultPhotoDataUrl : null,
+          resultPhotoDataUrl:
+            status === 'result'
+              ? hasResultPhoto
+                ? resultPhotoDataUrl
+                : cur.resultPhotoDataUrl ?? null
+              : null,
+          documents: nextDocs,
         }
         byDate[date] = list
         lsSet('mc:examsByDate', byDate)
@@ -218,6 +276,57 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
     if (!removed) throw new ApiError(404, 'not_found')
     lsSet('mc:examsByDate', byDate)
     return { ok: true } as T
+  }
+
+  const mDocsPost = pathname.match(/^\/exams\/([^/]+)\/docs$/)
+  if (mDocsPost && method === 'POST') {
+    const s = requireLocalAuth(token)
+    if (s.role !== 'admin') throw new ApiError(403, 'forbidden')
+    const itemId = decodeURIComponent(mDocsPost[1])
+    const body = opts.body ? (JSON.parse(String(opts.body)) as any) : {}
+    const kind = body.kind === 'result' ? 'result' : 'doc'
+    const name = String(body.name || 'Документ')
+    const dataUrl = String(body.dataUrl || '')
+    if (!dataUrl.startsWith('data:')) throw new ApiError(400, 'bad_request')
+
+    const byDate = lsGet<Record<string, LocalExamItem[]>>('mc:examsByDate', {})
+    for (const date of Object.keys(byDate)) {
+      const list = byDate[date] ?? []
+      const idx = list.findIndex((x) => x.id === itemId)
+      if (idx >= 0) {
+        const docId = `d_${Date.now()}_${Math.random().toString(36).slice(2)}`
+        const cur = list[idx]
+        const docs = [...(cur.documents ?? [])]
+        docs.unshift({ id: docId, kind, name, dataUrl, createdAt: new Date().toISOString() })
+        list[idx] = { ...cur, documents: docs }
+        byDate[date] = list
+        lsSet('mc:examsByDate', byDate)
+        return { id: docId } as T
+      }
+    }
+    throw new ApiError(404, 'not_found')
+  }
+
+  const mDocsDel = pathname.match(/^\/exams\/([^/]+)\/docs\/([^/]+)$/)
+  if (mDocsDel && method === 'DELETE') {
+    const s = requireLocalAuth(token)
+    if (s.role !== 'admin') throw new ApiError(403, 'forbidden')
+    const itemId = decodeURIComponent(mDocsDel[1])
+    const docId = decodeURIComponent(mDocsDel[2])
+    const byDate = lsGet<Record<string, LocalExamItem[]>>('mc:examsByDate', {})
+    for (const date of Object.keys(byDate)) {
+      const list = byDate[date] ?? []
+      const idx = list.findIndex((x) => x.id === itemId)
+      if (idx >= 0) {
+        const cur = list[idx]
+        const docs = (cur.documents ?? []).filter((d) => d.id !== docId)
+        list[idx] = { ...cur, documents: docs }
+        byDate[date] = list
+        lsSet('mc:examsByDate', byDate)
+        return { ok: true } as T
+      }
+    }
+    throw new ApiError(404, 'not_found')
   }
 
   throw new ApiError(404, 'not_found')
