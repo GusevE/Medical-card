@@ -100,7 +100,7 @@ export default function App() {
       </main>
 
       <footer className="footer">
-        Данные сохраняются в базе данных (SQLite) на сервере.
+        Версия приложения: <b>{__APP_VERSION__}</b>
       </footer>
     </div>
   )
