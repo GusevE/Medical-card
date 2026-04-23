@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/.git
+**/.cursor
+**/*.log
+
+# Local DB files
+server/data.sqlite
+server/data.sqlite-shm
+server/data.sqlite-wal
+
