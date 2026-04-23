@@ -19,6 +19,16 @@ export function HomePage() {
     return parts.slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')
   }, [patient?.fullName])
 
+  const photoSrc = useMemo(() => {
+    const v = patient?.photoDataUrl
+    if (!v) return null
+    if (/^data:/i.test(v)) return v
+    if (/^https?:\/\//i.test(v)) return v
+    // GitHub Pages is served under BASE_URL (e.g. /Medical-card/)
+    if (v.startsWith('/')) return `${import.meta.env.BASE_URL}${v.slice(1)}`
+    return `${import.meta.env.BASE_URL}${v}`
+  }, [patient?.photoDataUrl])
+
   async function onPickPhoto(file: File | null) {
     if (!file) return
     if (!token) return
@@ -55,8 +65,8 @@ export function HomePage() {
         <div className="grid2 gap-16">
           <div className="photoBlock">
             <div className="avatar">
-              {patient.photoDataUrl ? (
-                <img src={patient.photoDataUrl} alt="Фото пациента" />
+              {photoSrc ? (
+                <img src={photoSrc} alt="Фото пациента" />
               ) : (
                 <div className="avatarFallback" aria-label="Фото отсутствует">
                   {initials || '👤'}
