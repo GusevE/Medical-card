@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { type ExamItem, useMedicalStore } from '../store/medicalStore'
+import { fileToDataUrl } from '../lib/file'
 
 type NewItemForm = {
   title: string
@@ -30,6 +31,8 @@ export function ExamsPage() {
   const updatingExamIds = useMedicalStore((s) => s.updatingExamIds)
 
   const [form, setForm] = useState<NewItemForm>({ title: '', deadline: '' })
+  const resultFileRef = useRef<HTMLInputElement | null>(null)
+  const [resultPickForId, setResultPickForId] = useState<string | null>(null)
 
   const [cat, setCat] = useState<string>('Все')
 
@@ -98,6 +101,17 @@ export function ExamsPage() {
     }
   }
 
+  async function onPickResultPhoto(file: File | null) {
+    const itemId = resultPickForId
+    setResultPickForId(null)
+    if (!file) return
+    if (!token) return
+    if (!canEdit) return
+    if (!itemId) return
+    const dataUrl = await fileToDataUrl(file)
+    await setExamStatus(token, date, itemId, 'result', dataUrl)
+  }
+
   return (
     <div className="stack gap-16">
       <div className="card">
@@ -116,6 +130,13 @@ export function ExamsPage() {
         </div>
 
         <div className="stack gap-12">
+          <input
+            ref={resultFileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => void onPickResultPhoto(e.currentTarget.files?.[0] ?? null)}
+          />
           <div className="subtabs" role="tablist" aria-label="Категории">
             {categories.map((c) => {
               const count = c === 'Все' ? items.length : items.filter((i) => i.category === c).length
@@ -232,6 +253,17 @@ export function ExamsPage() {
                               ? ` • ${it.doneAt.slice(0, 10)}`
                               : ''}
                           </span>
+                          {it.status === 'result' && it.resultPhotoDataUrl ? (
+                            <a
+                              className="badge"
+                              href={it.resultPhotoDataUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Открыть фото результата"
+                            >
+                              Фото
+                            </a>
+                          ) : null}
                         </div>
                       </div>
                       <div className="row gap-8 wrap">
@@ -254,7 +286,11 @@ export function ExamsPage() {
                         <button
                           type="button"
                           className="btn sm"
-                          onClick={() => token && canEdit && void setExamStatus(token, date, it.id, 'result')}
+                          onClick={() => {
+                            if (!token || !canEdit) return
+                            setResultPickForId(it.id)
+                            resultFileRef.current?.click()
+                          }}
                           disabled={!canEdit || updatingExamIds[it.id] || it.status === 'result'}
                         >
                           Результат

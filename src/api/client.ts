@@ -10,6 +10,7 @@ type LocalExamItem = {
   status: LocalExamStatus
   category: string
   validityDays: number
+  resultPhotoDataUrl?: string | null
   doneAt: string
 }
 type LocalPatient = {
@@ -132,6 +133,7 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
       status: 'todo',
       category: String(body.category || ''),
       validityDays: Number(body.validityDays || 0),
+      resultPhotoDataUrl: null,
       doneAt: '',
     }
     byDate[date] = [item, ...(byDate[date] ?? [])]
@@ -152,7 +154,12 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
         const cur = list[idx]
         const isDone = cur.status === 'done' || cur.status === 'result'
         const nextStatus: LocalExamStatus = isDone ? 'todo' : 'done'
-        list[idx] = { ...cur, status: nextStatus, doneAt: nextStatus === 'done' ? new Date().toISOString() : '' }
+        list[idx] = {
+          ...cur,
+          status: nextStatus,
+          doneAt: nextStatus === 'done' ? new Date().toISOString() : '',
+          resultPhotoDataUrl: null,
+        }
         byDate[date] = list
         lsSet('mc:examsByDate', byDate)
         return { ok: true } as T
@@ -168,6 +175,7 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
     const id = decodeURIComponent(mStatus[1])
     const body = opts.body ? (JSON.parse(String(opts.body)) as any) : {}
     const status = String(body.status || '') as LocalExamStatus
+    const resultPhotoDataUrl = typeof body.resultPhotoDataUrl === 'string' ? body.resultPhotoDataUrl : null
     const allowed: LocalExamStatus[] = ['todo', 'referral', 'submitted', 'done', 'result']
     if (!allowed.includes(status)) throw new ApiError(400, 'bad_request')
 
@@ -178,7 +186,12 @@ async function localApiFetch<T>(path: string, opts: RequestInit & { token?: stri
       if (idx >= 0) {
         const cur = list[idx]
         const doneLike = status === 'done' || status === 'result'
-        list[idx] = { ...cur, status, doneAt: doneLike ? new Date().toISOString() : '' }
+        list[idx] = {
+          ...cur,
+          status,
+          doneAt: doneLike ? new Date().toISOString() : '',
+          resultPhotoDataUrl: status === 'result' ? resultPhotoDataUrl : null,
+        }
         byDate[date] = list
         lsSet('mc:examsByDate', byDate)
         return { ok: true } as T

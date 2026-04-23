@@ -21,6 +21,7 @@ export type ExamItem = {
   status: 'todo' | 'referral' | 'submitted' | 'done' | 'result'
   category: string
   validityDays: number
+  resultPhotoDataUrl?: string | null
   doneAt: string // ISO or ''
 }
 
@@ -52,6 +53,7 @@ type MedicalState = {
     date: string,
     itemId: string,
     status: ExamItem['status'],
+    resultPhotoDataUrl?: string | null,
   ) => Promise<void>
   removeExamItem: (token: string, date: string, itemId: string) => Promise<void>
 }
@@ -155,7 +157,7 @@ export const useMedicalStore = create<MedicalState>()(
       }
     },
 
-    setExamStatus: async (token, date, itemId, status) => {
+    setExamStatus: async (token, date, itemId, status, resultPhotoDataUrl) => {
       set((s) => ({ updatingExamIds: { ...s.updatingExamIds, [itemId]: true } }))
       try {
         // Optimistic UI
@@ -169,6 +171,7 @@ export const useMedicalStore = create<MedicalState>()(
                   ...it,
                   status,
                   doneAt: doneLike ? new Date().toISOString() : '',
+                  resultPhotoDataUrl: status === 'result' ? (resultPhotoDataUrl ?? it.resultPhotoDataUrl ?? null) : null,
                 },
           )
           return { examsByDate: { ...s.examsByDate, [date]: next } }
@@ -177,7 +180,7 @@ export const useMedicalStore = create<MedicalState>()(
         await apiFetch<{ ok: true }>(`/exams/${encodeURIComponent(itemId)}/status`, {
           token,
           method: 'PATCH',
-          body: JSON.stringify({ status }),
+          body: JSON.stringify({ status, resultPhotoDataUrl: status === 'result' ? (resultPhotoDataUrl ?? null) : null }),
         })
         await get().loadExams(token, date)
       } finally {

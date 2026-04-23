@@ -174,6 +174,7 @@ const examBulkSchema = z.object({
 
 const examStatusSchema = z.object({
   status: z.enum(['todo', 'referral', 'submitted', 'done', 'result']),
+  resultPhotoDataUrl: z.string().nullable().optional(),
 })
 
 app.get('/exams', requireAuth, (req, res) => {
@@ -268,7 +269,7 @@ app.get('/exams', requireAuth, (req, res) => {
 
   const items = db
     .prepare(
-      `SELECT id, exam_date, title, deadline, status, category, validity_days, done, done_at
+      `SELECT id, exam_date, title, deadline, status, category, validity_days, result_photo_data_url, done, done_at
        FROM exam_items
        WHERE exam_date = ?
        ORDER BY id DESC`,
@@ -284,6 +285,7 @@ app.get('/exams', requireAuth, (req, res) => {
       status: r.status || (r.done ? 'done' : 'todo'),
       category: r.category || '',
       validityDays: Number(r.validity_days || 0),
+      resultPhotoDataUrl: r.result_photo_data_url ? String(r.result_photo_data_url) : null,
       doneAt: r.done_at,
     })),
   )
@@ -351,11 +353,18 @@ app.patch('/exams/:id/status', requireAuth, requireAdmin, (req, res) => {
   const parsed = examStatusSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: 'bad_request' })
   const status = parsed.data.status
+  const resultPhotoDataUrl = parsed.data.resultPhotoDataUrl
   const doneAt = status === 'done' || status === 'result' ? new Date().toISOString() : ''
   const done = status === 'done' || status === 'result' ? 1 : 0
+
+  const nextPhoto =
+    status === 'result'
+      ? (typeof resultPhotoDataUrl === 'string' ? resultPhotoDataUrl : null)
+      : null
+
   const info = db
-    .prepare(`UPDATE exam_items SET status = ?, done = ?, done_at = ? WHERE id = ?`)
-    .run(status, done, doneAt, id)
+    .prepare(`UPDATE exam_items SET status = ?, done = ?, done_at = ?, result_photo_data_url = ? WHERE id = ?`)
+    .run(status, done, doneAt, nextPhoto ?? '', id)
   if (info.changes === 0) return res.status(404).json({ error: 'not_found' })
   return res.json({ ok: true })
 })

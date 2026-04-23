@@ -39,6 +39,7 @@ export function migrate() {
       title TEXT NOT NULL,
       deadline TEXT NOT NULL,
       status TEXT NOT NULL,
+      result_photo_data_url TEXT NOT NULL DEFAULT '',
       done INTEGER NOT NULL,
       done_at TEXT NOT NULL
     );
@@ -59,6 +60,9 @@ export function migrate() {
   }
   if (!hasColumn('exam_items', 'validity_days')) {
     db.exec(`ALTER TABLE exam_items ADD COLUMN validity_days INTEGER NOT NULL DEFAULT 0;`)
+  }
+  if (!hasColumn('exam_items', 'result_photo_data_url')) {
+    db.exec(`ALTER TABLE exam_items ADD COLUMN result_photo_data_url TEXT NOT NULL DEFAULT '';`)
   }
 
   // Cleanup existing duplicates (keep the smallest id for each key).
