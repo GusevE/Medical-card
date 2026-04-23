@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: medical-card-api
+    env: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: JWT_SECRET
+        generateValue: true
+      # Set this after you deploy the frontend (GitHub Pages URL)
+      - key: CLIENT_ORIGIN
+        value: https://guseve.github.io

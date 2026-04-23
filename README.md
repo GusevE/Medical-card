@@ -29,6 +29,24 @@ npm run dev
 - Admin: `admin` / `Tiguan2013!`
 - User (только просмотр): `user` / `Arina2016`
 
+## Бесплатный деплой (рекомендуемый)
+
+### Frontend: GitHub Pages
+
+1) Репозиторий → **Settings → Pages** → Source: **GitHub Actions**
+2) Репозиторий → **Settings → Secrets and variables → Actions → Variables**
+   - добавить переменную **`VITE_API_URL`** со значением URL вашего API (см. ниже)
+3) После пуша в `main` страница будет доступна на GitHub Pages.
+
+### Backend: Render (free)
+
+1) Зайти на Render → New → **Blueprint** → выбрать репозиторий
+2) Применить `render.yaml`
+3) В настройках сервиса:
+   - **`CLIENT_ORIGIN`**: URL GitHub Pages (например `https://guseve.github.io`)
+
+Важно: на бесплатном тарифе Render сервис может “засыпать”, первый запрос после паузы будет дольше.
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
