@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3'
 import path from 'node:path'
 
-export const DB_PATH = path.join(process.cwd(), 'data.sqlite')
+const DATA_DIR = process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || process.cwd()
+export const DB_PATH = path.join(DATA_DIR, 'data.sqlite')
 export const db = new Database(DB_PATH)
 
 db.pragma('journal_mode = WAL')
